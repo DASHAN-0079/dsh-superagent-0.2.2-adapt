@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { bindScopeParent } from '@deepseek-ai/dsh-scope'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1689,7 +1690,7 @@ it('selects its own preset again for a main Session or worker a person switched 
   }) }
   services.agentPresets = presets
   await (await restart()).ready
-  const emit = (sessionId: string, preset: string) => (runtime as unknown as { ctx: Context }).ctx.emit('agent-preset/selected', sessionId, preset)
+  const emit = (sessionId: string, preset: string) => (runtime as unknown as { ctx: Context }).ctx.emit('agent-preset/selected', SessionId(sessionId), preset)
   // A person opened the blank main Session in DSH's Web UI, which selected the default preset for it.
   emit(runtime.masterId, 'standard')
   await vi.waitFor(() => expect(presets.select).toHaveBeenCalledWith(agents.get(runtime.masterId), 'dsh-superagent-router'))

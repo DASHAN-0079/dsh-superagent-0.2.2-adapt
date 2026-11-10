@@ -105,8 +105,14 @@ it('tells a dsh-superagent that is starting from a browser that cannot write on 
   expect(limit().disabled).toBe(true)
   await act(async () => { publish({ status: 'ready' }) })
   expect(limit().disabled).toBe(false)
-  await act(async () => { publish({ mode: 'memory', status: 'unavailable', writable: false }) })
+  // A Host document that refuses writes is read-only even while the entry is served: the values stay disabled.
+  await act(async () => { publish({ status: 'ready', writable: false }) })
   expect(text()).toContain(zh.deploymentReadOnly)
+  expect(limit().disabled).toBe(true)
+  // An entry that stops being served reports unavailable, not read-only, and stays disabled.
+  await act(async () => { publish({ status: 'unavailable', writable: false }) })
+  expect(text()).toContain(zh.deploymentUnavailable)
+  expect(limit().disabled).toBe(true)
 })
 
 it('reads the state every second after a setup check, until dsh-superagent stopped answering and answers again', async () => {

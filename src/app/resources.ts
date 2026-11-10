@@ -1,5 +1,4 @@
 /** Serves paginated context resources to orchestrator_read so large bodies stay out of model prompts until requested. */
-import type { SessionId } from '@deepseek-ai/dsh-session'
 import { UserError, key, latestReport, reached, runningAssignment, threadKey, type Ticket, type Trigger } from '../core/index.ts'
 import { batchOf, inputMessage, triggerMessage, workerSessionId } from '../executor/dsh.ts'
 import { readGithub } from '../sources/github-read.ts'
@@ -10,6 +9,7 @@ import { ASSIGNMENTS, INPUTS, assignmentLine, decisionCard, decisionDetails, inp
   ticketDetails, triggerCard, type TicketThread } from './cards.ts'
 import { threadTitle } from './views/records.ts'
 import { transcriptEntry } from './context.ts'
+import { sessionHistory } from './session-history.ts'
 import { builtInParts, defaultPrompts } from './prompts.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Commands } from '../infra/commands.ts'
@@ -111,8 +111,8 @@ async function sourcePage(read: Read, source: string, fetch: () => Promise<unkno
 const THREAD_DECISIONS = 5
 const triggerLine = (trigger: Trigger) => ({ trigger_id: trigger.id, actor: trigger.actor.id, human: trigger.human, at: trigger.at,
   preview: preview(trigger.text), chars: trigger.text.length, read: `trigger/${trigger.id}` })
-async function transcript(host: ResourceHost, ticketId: string) {
-  return (await host.context.sessionController.inspect(workerSessionId(ticketId) as SessionId)).events
+async function transcript(host: ResourceHost, ticketId: string, signal?: AbortSignal) {
+  return sessionHistory(host.context, workerSessionId(ticketId), signal)
 }
 
 const ROUTES: readonly Route[] = [
@@ -269,7 +269,7 @@ const ROUTES: readonly Route[] = [
       if (message === undefined) throw new Error('Unknown ticket input')
       body = message
     } else if (section === 'message' && part && /^\d+$/.test(part)) {
-      const event = (await transcript(host, id))[Number(part)]
+      const event = (await transcript(host, id, read.signal))[Number(part)]
       const entry = event && transcriptEntry(event)
       if (!entry) throw new Error('Unknown transcript entry')
       body = JSON.stringify(entry)
@@ -281,7 +281,7 @@ const ROUTES: readonly Route[] = [
     else if (section === 'assignment') body = ticket.execution?.assignment ?? ''
     else if (section === 'result') body = latestReport(ticket)?.summary ?? ''
     else if (section === 'transcript') {
-      body = (await transcript(host, id)).flatMap((event, index) => {
+      body = (await transcript(host, id, read.signal)).flatMap((event, index) => {
         const entry = transcriptEntry(event)
         const said = entry?.message.content.map(block => block.type === 'text' ? block.text : `[${block.type}]`).join(' ') ?? ''
         return entry ? [{ type: entry.type, preview: preview(said).slice(0, 80), chars: JSON.stringify(entry).length,

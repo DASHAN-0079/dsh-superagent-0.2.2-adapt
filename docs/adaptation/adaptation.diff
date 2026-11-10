@@ -1,0 +1,432 @@
+diff --git a/src/app/http.ts b/src/app/http.ts
+index 13c0115..e711611 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -234,7 +234,15 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
+     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
+       const url = new URL(req.url ?? '/', 'http://localhost')
+       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
+-      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
++      // The port is undefined until the Web server binds; without it same-origin cannot be checked, so the request is
++      // refused with 500 rather than guessed from headers, a default port, or an assertion.
++      const port = ctx.webServer.port
++      if (port === undefined) {
++        ctx.logger.error('dsh-superagent refused a management request: the Web server has not bound a port yet')
++        json(res, 500, { error: 'Management is unavailable: the Web server has not bound a port yet' })
++        return
++      }
++      if (!sameOrigin(req, port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+       try {
+         await runtime.ready
+         const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))
+diff --git a/src/app/resources.ts b/src/app/resources.ts
+index f19f742..6f9340a 100644
+--- a/src/app/resources.ts
++++ b/src/app/resources.ts
+@@ -1,5 +1,4 @@
+ /** Serves paginated context resources to orchestrator_read so large bodies stay out of model prompts until requested. */
+-import type { SessionId } from '@deepseek-ai/dsh-session'
+ import { UserError, key, latestReport, reached, runningAssignment, threadKey, type Ticket, type Trigger } from '../core/index.ts'
+ import { batchOf, inputMessage, triggerMessage, workerSessionId } from '../executor/dsh.ts'
+ import { readGithub } from '../sources/github-read.ts'
+@@ -10,6 +9,7 @@ import { ASSIGNMENTS, INPUTS, assignmentLine, decisionCard, decisionDetails, inp
+   ticketDetails, triggerCard, type TicketThread } from './cards.ts'
+ import { threadTitle } from './views/records.ts'
+ import { transcriptEntry } from './context.ts'
++import { sessionHistory } from './session-history.ts'
+ import { builtInParts, defaultPrompts } from './prompts.ts'
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { Commands } from '../infra/commands.ts'
+@@ -111,8 +111,8 @@ async function sourcePage(read: Read, source: string, fetch: () => Promise<unkno
+ const THREAD_DECISIONS = 5
+ const triggerLine = (trigger: Trigger) => ({ trigger_id: trigger.id, actor: trigger.actor.id, human: trigger.human, at: trigger.at,
+   preview: preview(trigger.text), chars: trigger.text.length, read: `trigger/${trigger.id}` })
+-async function transcript(host: ResourceHost, ticketId: string) {
+-  return (await host.context.sessionController.inspect(workerSessionId(ticketId) as SessionId)).events
++async function transcript(host: ResourceHost, ticketId: string, signal?: AbortSignal) {
++  return sessionHistory(host.context, workerSessionId(ticketId), signal)
+ }
+ 
+ const ROUTES: readonly Route[] = [
+@@ -269,7 +269,7 @@ const ROUTES: readonly Route[] = [
+       if (message === undefined) throw new Error('Unknown ticket input')
+       body = message
+     } else if (section === 'message' && part && /^\d+$/.test(part)) {
+-      const event = (await transcript(host, id))[Number(part)]
++      const event = (await transcript(host, id, read.signal))[Number(part)]
+       const entry = event && transcriptEntry(event)
+       if (!entry) throw new Error('Unknown transcript entry')
+       body = JSON.stringify(entry)
+@@ -281,7 +281,7 @@ const ROUTES: readonly Route[] = [
+     else if (section === 'assignment') body = ticket.execution?.assignment ?? ''
+     else if (section === 'result') body = latestReport(ticket)?.summary ?? ''
+     else if (section === 'transcript') {
+-      body = (await transcript(host, id)).flatMap((event, index) => {
++      body = (await transcript(host, id, read.signal)).flatMap((event, index) => {
+         const entry = transcriptEntry(event)
+         const said = entry?.message.content.map(block => block.type === 'text' ? block.text : `[${block.type}]`).join(' ') ?? ''
+         return entry ? [{ type: entry.type, preview: preview(said).slice(0, 80), chars: JSON.stringify(entry).length,
+diff --git a/src/app/session-history.ts b/src/app/session-history.ts
+new file mode 100644
+index 0000000..22e31df
+--- /dev/null
++++ b/src/app/session-history.ts
+@@ -0,0 +1,81 @@
++/** Reads one Executor Session's complete durable event log through the paginated SessionController API. */
++import type { Context } from '@deepseek-ai/cordis'
++import type { SessionAddress, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
++import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
++
++/** Raised instead of returning a truncated, reordered or unreadable log. */
++export class HistoryIncomplete extends Error {}
++
++/**
++ * Validate one wire envelope before it is treated as a durable event.
++ * The controller hands back JSON, so a malformed page must fail the read rather than drop an entry silently.
++ */
++function durable(event: SessionWireEvent, id: string): SessionEvent {
++  if (typeof event !== 'object' || event === null) throw new HistoryIncomplete(`Session ${id} history returned a non-event record`)
++  if (typeof event.type !== 'string' || event.type.length === 0) throw new HistoryIncomplete(`Session ${id} history returned an event without a type`)
++  if (!Number.isSafeInteger(event.seq) || event.seq < 0) throw new HistoryIncomplete(`Session ${id} history returned an invalid seq: ${String(event.seq)}`)
++  if (typeof event.time !== 'number' || !Number.isFinite(event.time)) throw new HistoryIncomplete(`Session ${id} history returned an invalid time at seq ${event.seq}`)
++  if (event.data === undefined) throw new HistoryIncomplete(`Session ${id} history returned an event without data at seq ${event.seq}`)
++  // Only `data` differs between the wire and durable shapes, and it is the same JSON the session log stored.
++  return event as unknown as SessionEvent
++}
++
++/**
++ * Read every durable event of one Session, oldest first.
++ *
++ * The first page pins the log cut (`cursor`); every later page must report that same cut and steps backwards with
++ * `beforeSeq` (exclusive) set to the oldest event already read. The result is the whole prefix, not the newest page, so
++ * transcript indexes and message numbers stay stable.
++ *
++ * The read fails instead of returning a shorter log when:
++ * - a later page reports a different `cursor` (the window would drift under concurrent appends);
++ * - a page is empty while `hasMore` says more remains, or the page does not move before `beforeSeq`;
++ * - a page is not strictly ascending by `seq`, repeats a `seq`, or leaves a gap at the page boundary;
++ * - a wire record is malformed.
++ */
++export async function sessionHistory(ctx: Context, id: string, signal?: AbortSignal): Promise<readonly SessionEvent[]> {
++  const address: SessionAddress = { kind: 'session', sessionId: id as SessionId }
++  const request = signal ?? new AbortController().signal
++  const pages: SessionEvent[][] = []
++  const seen = new Set<number>()
++  let through: number | undefined
++  let before: number | undefined
++  let previousOldest: number | undefined
++  for (;;) {
++    const page = await ctx.sessionController.events({
++      address,
++      ...through === undefined ? {} : { throughSeq: through },
++      ...before === undefined ? {} : { beforeSeq: before },
++    }, request)
++    if (!Number.isSafeInteger(page.cursor)) throw new HistoryIncomplete(`Session ${id} history returned an invalid cursor: ${String(page.cursor)}`)
++    if (through === undefined) through = page.cursor
++    else if (page.cursor !== through) throw new HistoryIncomplete(`Session ${id} history cursor moved from ${through} to ${page.cursor}`)
++    const events = page.records.map(record => durable(record.event, id))
++    if (events.length === 0) {
++      if (page.hasMore) throw new HistoryIncomplete(`Session ${id} history page was empty while more remained`)
++      break
++    }
++    for (let index = 1; index < events.length; index++) {
++      const previous = events[index - 1]!.seq
++      const current = events[index]!.seq
++      if (current <= previous) throw new HistoryIncomplete(`Session ${id} history is not ascending: seq ${previous} then ${current}`)
++    }
++    // Duplicates are caught before the boundary check so a repeated event reports as a repeat, not as a gap.
++    for (const event of events) {
++      if (seen.has(event.seq)) throw new HistoryIncomplete(`Session ${id} history returned seq ${event.seq} twice`)
++      seen.add(event.seq)
++    }
++    // Pages walk backwards, so this page's newest event must sit exactly one below the previous page's oldest one.
++    if (previousOldest !== undefined) {
++      const newest = events[events.length - 1]!.seq
++      if (newest !== previousOldest - 1) throw new HistoryIncomplete(`Session ${id} history gap: seq ${newest} then ${previousOldest}`)
++    }
++    pages.push(events)
++    const oldest = events[0]!
++    if (!page.hasMore) break
++    if (before !== undefined && oldest.seq >= before) throw new HistoryIncomplete(`Session ${id} history pagination did not move past seq ${before}`)
++    previousOldest = oldest.seq
++    before = oldest.seq
++  }
++  return pages.reverse().flat()
++}
+diff --git a/src/client/deployment.tsx b/src/client/deployment.tsx
+index a345811..0439b2b 100644
+--- a/src/client/deployment.tsx
++++ b/src/client/deployment.tsx
+@@ -46,9 +46,12 @@ export function DeploymentPage({ setup, form, accounts: showAccounts }: { setup:
+     } })
+   const accounts = setup.accounts
+   // Remote browsers (`memory` mode) are read-only; `unavailable` indicates `dsh-superagent` is still starting.
+-  const readOnlyHint = !form ? t('deploymentNoForms') : snapshot?.mode === 'memory' ? t('deploymentReadOnly')
+-    : snapshot?.status === 'loading' ? t('loading') : snapshot?.status === 'unavailable' ? t('deploymentUnavailable')
+-    : !editable ? t('deploymentReadOnly') : undefined
++  // `mode` no longer exists: the form is read-only exactly when its status is `ready` and the Host document refuses writes.
++  const readOnlyHint = !form ? t('deploymentNoForms')
++    : snapshot === undefined ? undefined
++    : snapshot.status === 'loading' ? t('loading')
++    : snapshot.status === 'unavailable' ? t('deploymentUnavailable')
++    : !snapshot.writable ? t('deploymentReadOnly') : undefined
+   const limit = (key: typeof MACHINE_LIMITS[number], label: string) => <Field label={label}>
+     <Input type="number" min={LIMITS[key].min} max={LIMITS[key].max} step={1} value={draft.value[key]} disabled={!editable}
+       onChange={event => draft.edit({ ...draft.value, [key]: event.target.value })} />
+diff --git a/src/deployment.ts b/src/deployment.ts
+index 76340cb..7004dc0 100644
+--- a/src/deployment.ts
++++ b/src/deployment.ts
+@@ -10,7 +10,10 @@ import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra
+ import { SetupError } from './setup.ts'
+ 
+ const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
+-const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
++// POSIX absolute paths start with `/`; Windows ones with a drive (`C:\` or `C:/`) or a UNC share (`\\host`). The
++// configuration file is edited by a person, so the platform is not assumed.
++const absolute = (description: string) => s.string().pattern(/^(\/|[A-Za-z]:[\\/]|\\\\)/u)
++  .description(`${description} Absolute path.`)
+ /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
+ export const Config = s.object({
+   stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.').required(),
+diff --git a/tests/deployment.spec.ts b/tests/deployment.spec.ts
+index 532b40b..aa32be0 100644
+--- a/tests/deployment.spec.ts
++++ b/tests/deployment.spec.ts
+@@ -50,6 +50,15 @@ describe('configuration schema', () => {
+     expect(() => Config(minimal({ stateDir: 'relative/dir' }))).toThrow()
+     expect(() => Config(minimal({ stateDir: '~/dir' }))).toThrow()
+   })
++  it('accepts every absolute state path form and rejects relative or drive-relative ones', () => {
++    // A person writes this value in a DSH configuration file, so the platform is not assumed.
++    for (const stateDir of ['/var/lib/dsh-superagent/state', 'C:\\state\\superagent', 'C:/state/superagent', '\\\\host\\share\\superagent']) {
++      expect(() => Config({ stateDir })).not.toThrow()
++    }
++    for (const stateDir of ['state/superagent', './state', '../state', 'C:state', '\\']) {
++      expect(() => Config({ stateDir })).toThrow()
++    }
++  })
+   it('names keys the configuration does not define, and where the values of older keys live now', () => {
+     const raw = minimal({ repository: 'acme/widgets', repositoryPath: '/srv/widgets', blockedCommands: [], author: { name: 'Alice' }, extra: 1 })
+     expect(() => machineOf(Config(raw))).toThrow('keys it does not use: repository (now on the GitHub Source), repositoryPath (now in the prepare command of the Execution settings), blockedCommands (now in the Execution settings), author (now prompt text), extra;')
+diff --git a/tests/fixtures/host.ts b/tests/fixtures/host.ts
+index 70ace2e..e9b0c25 100644
+--- a/tests/fixtures/host.ts
++++ b/tests/fixtures/host.ts
+@@ -231,7 +231,8 @@ export async function startRuntime(seed?: (store: Store) => void) {
+     }),
+     selectModel: vi.fn(async () => {}), resolveAgent: vi.fn(resolveDefault), rename: vi.fn(async () => {}),
+     prompt: vi.fn(() => { throw new Error('Plugin delivery must not use user RPC') }),
+-    inspect: vi.fn(async () => ({ events: [] })),
++    // The controller reads history as pages of wire envelopes; an empty page is the quiet default.
++    events: vi.fn(async () => ({ cursor: 0, records: [], hasMore: false })),
+   }
+   const reader = { read: async () => ({ events: [] }), [Symbol.asyncDispose]: async () => {} }
+   const persistence = { flush: vi.fn(async () => {}), open: vi.fn(async () => reader) }
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index 513d91a..2353a17 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -457,8 +457,7 @@ type Ops = Parameters<ConfigForm<Record<string, unknown>>['mutate']>[0]
+ export function fakeForm(writable = true, accept = true) {
+   const listeners = new Set<() => void>()
+   let snapshot: ConfigFormSnapshot<Record<string, unknown>> = { status: 'ready', value: { ...MACHINE }, base: undefined, user: undefined,
+-    revision: 1, writable,
+-    mode: 'host' }
++    revision: 1, writable }
+   const notify = () => { for (const listener of listeners) listener() }
+   const mutations: { ops: Ops; revision: number | undefined }[] = []
+   const form: ConfigForm<Record<string, unknown>> = {
+diff --git a/tests/panel-deployment.spec.tsx b/tests/panel-deployment.spec.tsx
+index 33348ba..ad86cc6 100644
+--- a/tests/panel-deployment.spec.tsx
++++ b/tests/panel-deployment.spec.tsx
+@@ -105,8 +105,14 @@ it('tells a dsh-superagent that is starting from a browser that cannot write on
+   expect(limit().disabled).toBe(true)
+   await act(async () => { publish({ status: 'ready' }) })
+   expect(limit().disabled).toBe(false)
+-  await act(async () => { publish({ mode: 'memory', status: 'unavailable', writable: false }) })
++  // A Host document that refuses writes is read-only even while the entry is served: the values stay disabled.
++  await act(async () => { publish({ status: 'ready', writable: false }) })
+   expect(text()).toContain(zh.deploymentReadOnly)
++  expect(limit().disabled).toBe(true)
++  // An entry that stops being served reports unavailable, not read-only, and stays disabled.
++  await act(async () => { publish({ status: 'unavailable', writable: false }) })
++  expect(text()).toContain(zh.deploymentUnavailable)
++  expect(limit().disabled).toBe(true)
+ })
+ 
+ it('reads the state every second after a setup check, until dsh-superagent stopped answering and answers again', async () => {
+diff --git a/tests/role-models.spec.ts b/tests/role-models.spec.ts
+index 1be1405..5765b83 100644
+--- a/tests/role-models.spec.ts
++++ b/tests/role-models.spec.ts
+@@ -1,7 +1,7 @@
+ import { afterEach, expect, it, vi } from 'vitest'
+ import { Context } from '@deepseek-ai/cordis'
+ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+-import { agentEvents, installModelSelection, type Agent, type ModelSelection, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
++import { AgentModel, agentEvents, installModelSelection, type Agent, type ModelSelection } from '@deepseek-ai/dsh-agent'
+ import { Session, SessionId } from '@deepseek-ai/dsh-session'
+ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+ import { initializeRoleModel } from '../src/app/role-models.ts'
+@@ -15,11 +15,21 @@ async function fixture() {
+   ctx.reflect.provide('sessionPersistence', { flush })
+   const session = Session.create(SessionId('role-model'))
+   const agent = { ctx, session } as Agent
+-  const host: ModelSelectionRef = { get current() { return session.requestHeader()?.config ?? { provider: 'host', model: 'default', reasoningEffort: ReasoningEffortId('high') } }, assembled: undefined }
+-  installModelSelection(ctx, host)
++  // DSH's durable selection fold read back from the Session: a recorded selection wins, otherwise the live options name the
++  // route. Registered after the role-model listener so an assembled step still overrides the route it fixed.
++  const selectionState = () => {
++    const recorded = session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data as ModelSelection | undefined
++    const header = session.requestHeader()?.config
++    const pending = recorded !== undefined && (header === undefined || recorded.provider !== header.provider
++      || recorded.model !== header.model || recorded.reasoningEffort !== header.reasoningEffort) ? recorded : null
++    return { lastUsed: header ?? null, pending }
++  }
++  const model = new AgentModel(selectionState, session, { provider: 'host', model: 'default', reasoningEffort: ReasoningEffortId('high') })
++  installModelSelection(ctx)
++  ctx.on('agent/request', async (_payload, next) => { const result = await next(); return model.current() ?? result })
+   const request = () => agentEvents(ctx, agent).waterfall('agent/request', { turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ provider: 'seed', model: 'seed' }))
+   const record = (selection: ModelSelection) => { const event = session.append('request/header', { header: { config: selection }, reason: 'initial' }); ctx.emit('session/event', session, event) }
+-  return { ctx, agent, host, resolve, flush, request, record }
++  return { ctx, agent, resolve, flush, request, record }
+ }
+ it('keeps prompt variables and initial routing on the role model without saving the host default', async () => {
+   const { ctx, agent, request, record, flush } = await fixture()
+@@ -36,11 +46,10 @@ it('keeps prompt variables and initial routing on the role model without saving
+   expect(await request()).toEqual(selected)
+ })
+ it('lets a later explicit selection win without changing the in-flight assembled step', async () => {
+-  const { ctx, agent, host, request } = await fixture()
++  const { ctx, agent, request } = await fixture()
+   await initializeRoleModel(ctx, agent, { provider: 'worker', model: 'one' })
+   await ctx.systemPrompt.assemble()
+   const manual = { provider: 'manual', model: 'two', reasoningEffort: ReasoningEffortId('low') }
+-  Object.defineProperty(host, 'current', { value: manual, configurable: true })
+   const event = agent.session.append('model/selection', manual); ctx.emit('session/event', agent.session, event)
+   expect(await request()).toEqual({ provider: 'worker', model: 'one' })
+   await ctx.systemPrompt.assemble()
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index fd737f2..2b70d2f 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -1,4 +1,5 @@
+ import { Context } from '@deepseek-ai/cordis'
++import { SessionId } from '@deepseek-ai/dsh-session'
+ import { bindScopeParent } from '@deepseek-ai/dsh-scope'
+ import { mkdtempSync, rmSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+@@ -1689,7 +1690,7 @@ it('selects its own preset again for a main Session or worker a person switched
+   }) }
+   services.agentPresets = presets
+   await (await restart()).ready
+-  const emit = (sessionId: string, preset: string) => (runtime as unknown as { ctx: Context }).ctx.emit('agent-preset/selected', sessionId, preset)
++  const emit = (sessionId: string, preset: string) => (runtime as unknown as { ctx: Context }).ctx.emit('agent-preset/selected', SessionId(sessionId), preset)
+   // A person opened the blank main Session in DSH's Web UI, which selected the default preset for it.
+   emit(runtime.masterId, 'standard')
+   await vi.waitFor(() => expect(presets.select).toHaveBeenCalledWith(agents.get(runtime.masterId), 'dsh-superagent-router'))
+diff --git a/tests/session-history.spec.ts b/tests/session-history.spec.ts
+new file mode 100644
+index 0000000..0696953
+--- /dev/null
++++ b/tests/session-history.spec.ts
+@@ -0,0 +1,81 @@
++import { describe, expect, it, vi } from 'vitest'
++import type { Context } from '@deepseek-ai/cordis'
++import { HistoryIncomplete, sessionHistory } from '../src/app/session-history.ts'
++
++/** One durable wire envelope as the controller returns it. */
++const event = (seq: number) => ({ type: 'assistant/message', seq, time: 0, data: { message: { role: 'assistant', content: [] } } })
++const page = (records: unknown[], cursor: number, hasMore = false) => ({ cursor, hasMore, records: records.map(item => ({ type: 'event', event: item })) })
++
++/** A Context whose controller serves the given pages and records how each call was made. */
++function controller(pages: unknown[]) {
++  const calls: { throughSeq?: number; beforeSeq?: number }[] = []
++  const events = vi.fn(async (request: { throughSeq?: number; beforeSeq?: number }) => {
++    calls.push(request)
++    const next = pages.shift()
++    if (next === undefined) throw new Error('the reader asked for a page that does not exist')
++    return next as never
++  })
++  return { ctx: { sessionController: { events } } as unknown as Context, calls, events }
++}
++
++describe('sessionHistory', () => {
++  it('returns a single non-empty page oldest first', async () => {
++    const { ctx } = controller([page([{ ...event(3) }, { ...event(4) }], 4)])
++    const events = await sessionHistory(ctx, 'worker')
++    expect(events.map(item => item.seq)).toEqual([3, 4])
++  })
++
++  it('pages backwards from a pinned cursor and returns the whole prefix in order', async () => {
++    const { ctx, calls } = controller([
++      page([event(10), event(11), event(12)], 12, true),
++      page([event(7), event(8), event(9)], 12, false),
++    ])
++    const events = await sessionHistory(ctx, 'worker')
++    expect(events.map(item => item.seq)).toEqual([7, 8, 9, 10, 11, 12])
++    // The first page fixes the cut; later pages pin it and step before the oldest event already read, exclusive.
++    const address = { kind: 'session', sessionId: 'worker' }
++    expect(calls).toEqual([
++      { address },
++      { address, throughSeq: 12, beforeSeq: 10 },
++    ])
++  })
++
++  it('fails on a gap between pages instead of returning a short log', async () => {
++    const { ctx } = controller([
++      page([event(10), event(11)], 11, true),
++      page([event(6), event(7)], 11, false),
++    ])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(HistoryIncomplete)
++  })
++
++  it('fails when a later page reports a different cursor', async () => {
++    const { ctx } = controller([
++      page([event(10)], 10, true),
++      page([event(9)], 11, false),
++    ])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/cursor moved/)
++  })
++
++  it('fails when a page is not strictly ascending', async () => {
++    const { ctx } = controller([page([event(5), event(4)], 5, false)])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/not ascending/)
++  })
++
++  it('fails on a repeated seq across pages', async () => {
++    const { ctx } = controller([
++      page([event(10)], 10, true),
++      page([event(10)], 10, false),
++    ])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/twice/)
++  })
++
++  it('fails on a malformed wire record instead of dropping it', async () => {
++    const { ctx } = controller([page([{ type: 'assistant/message', data: {} }], 1)])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/invalid seq/)
++  })
++
++  it('fails when a page is empty while more remains', async () => {
++    const { ctx } = controller([page([], 4, true)])
++    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/empty while more remained/)
++  })
++})
+diff --git a/tests/tools.spec.ts b/tests/tools.spec.ts
+index f3dde91..2c1b0ee 100644
+--- a/tests/tools.spec.ts
++++ b/tests/tools.spec.ts
+@@ -345,8 +345,9 @@ it('reads a ticket with the ids it is tied to, its reports by assignment, and it
+   expect(await read(`ticket/${ticket.id}/input/text:long`)).toMatchObject({ text: page.text })
+   expect(await read(`ticket/${ticket.id}/inputs`, { offset: 20 })).toMatchObject({ items: expect.objectContaining({ length: 4 }), next_offset: null })
+   expect(await read(details.assignments.items[0]!.report.read)).toMatchObject({ text: report(7).summary.slice(0, 4000) })
+-  vi.mocked(h.controller.inspect).mockResolvedValueOnce({ events: [{ type: 'assistant/message', data: { message: { role: 'assistant',
+-    content: [{ type: 'text', text: `I fixed the margin. ${'Details. '.repeat(20)}` }] } } }] } as never)
++  vi.mocked(h.controller.events).mockResolvedValueOnce({ cursor: 0, hasMore: false, records: [{ type: 'event', event: { type: 'assistant/message',
++    seq: 0, time: 0, data: { message: { role: 'assistant',
++      content: [{ type: 'text', text: `I fixed the margin. ${'Details. '.repeat(20)}` }] } } } }] } as never)
+   const transcript = JSON.parse((await read(`ticket/${ticket.id}/transcript`) as { text: string }).text) as { preview: string; read: string }
+   expect(transcript).toMatchObject({ preview: expect.stringMatching(/^I fixed the margin\./), read: `ticket/${ticket.id}/message/0` })
+   expect(transcript.preview.length).toBeLessThanOrEqual(80)

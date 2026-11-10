@@ -231,7 +231,8 @@ export async function startRuntime(seed?: (store: Store) => void) {
     }),
     selectModel: vi.fn(async () => {}), resolveAgent: vi.fn(resolveDefault), rename: vi.fn(async () => {}),
     prompt: vi.fn(() => { throw new Error('Plugin delivery must not use user RPC') }),
-    inspect: vi.fn(async () => ({ events: [] })),
+    // The controller reads history as pages of wire envelopes; an empty page is the quiet default.
+    events: vi.fn(async () => ({ cursor: 0, records: [], hasMore: false })),
   }
   const reader = { read: async () => ({ events: [] }), [Symbol.asyncDispose]: async () => {} }
   const persistence = { flush: vi.fn(async () => {}), open: vi.fn(async () => reader) }

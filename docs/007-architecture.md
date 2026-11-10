@@ -339,6 +339,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/links.ts` | `sourceLink`, the page of a Trigger's message, and `candidateCard` |
 | `src/app/cards.ts` | Compact cards of Triggers, Tickets, Threads and Decisions for models, the closed set of ticket card states `TICKET_STATES`, and `textPage` |
 | `src/app/resources.ts` | `RESOURCES` and `readResource`: what `orchestrator_read` reads, for each role |
+| `src/app/session-history.ts` | `sessionHistory`: one Session's whole durable log through the paginated controller API, paging backwards from a pinned cursor and failing rather than returning a truncated, reordered or unreadable log |
 | `src/app/tools/tool.ts` | The `Tool` type, `readTool`, the `orchestrator_read` of both roles, and `AcknowledgementSchema` |
 | `src/app/tools/main.ts` | The main Session's tools |
 | `src/app/tools/executor.ts` | An Executor Session's tools |
@@ -444,6 +445,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/locales.spec.ts`, `tests/styles.spec.ts` | The copy in both languages, the stylesheet |
 | `tests/class-docs.spec.ts` | Every class in `src` has a JSDoc block before it |
 | `tests/docs.spec.ts` | Numbered documents link only to earlier ones, every local link resolves, no document has merge conflict markers, and this document's tables list every module and every test |
+| `tests/session-history.spec.ts` | Whole-log pagination through `SessionController.events`: pinned cursor, exclusive `beforeSeq`, page gaps, ordering, duplicate and malformed records |
 
 `tests/fixtures/` holds what several tests share: `host.ts`, a simulated DeepSeek Harness host; `panel-server.ts` and `panel.tsx`, the fake management API and the panel around a page; `deployment.ts`, a resolved deployment; `git.ts`, the environment of every git the tests start, which names no repository; and `async.ts`.
 

@@ -234,7 +234,15 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
-      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      // The port is undefined until the Web server binds; without it same-origin cannot be checked, so the request is
+      // refused with 500 rather than guessed from headers, a default port, or an assertion.
+      const port = ctx.webServer.port
+      if (port === undefined) {
+        ctx.logger.error('dsh-superagent refused a management request: the Web server has not bound a port yet')
+        json(res, 500, { error: 'Management is unavailable: the Web server has not bound a port yet' })
+        return
+      }
+      if (!sameOrigin(req, port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       try {
         await runtime.ready
         const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))
