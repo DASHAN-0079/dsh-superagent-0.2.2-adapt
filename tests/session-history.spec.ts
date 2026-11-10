@@ -99,8 +99,23 @@ describe('sessionHistory', () => {
     expect(events).not.toHaveBeenCalled()
   })
 
-  it('returns an empty log for an empty Session', async () => {
+  it('fails on an empty page that still reports a non-negative cursor', async () => {
     const { ctx } = controller([page([], 0, false)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/empty page at cursor/)
+  })
+
+  it('fails on a cursor below -1', async () => {
+    const { ctx } = controller([page([], -2, false)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/invalid cursor/)
+  })
+
+  it('fails when an event reports a seq past the cursor', async () => {
+    const { ctx } = controller([page([0, 1, 2], 1)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/past cursor/)
+  })
+
+  it('accepts the legal empty log at cursor -1', async () => {
+    const { ctx } = controller([page([], -1, false)])
     expect(await sessionHistory(ctx, 'worker')).toEqual([])
   })
 })

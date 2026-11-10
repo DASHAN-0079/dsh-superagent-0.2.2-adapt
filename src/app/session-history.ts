@@ -25,13 +25,15 @@ function durable(event: { type?: unknown; seq?: unknown; time?: unknown; data?: 
  *
  * The first page pins the log cut (`cursor`); every later page must report that same cut and steps backwards with
  * `beforeSeq` (exclusive) set to the oldest event already read. The result is the whole prefix, not the newest page, so
- * transcript indexes and message numbers stay stable.
+ * transcript indexes and message numbers stay stable. An empty log is legal only at `cursor = -1`.
  *
- * The read fails instead of returning a shorter or shifted log when:
+ * The read fails instead of returning a shorter, shifted or overstated log when:
  * - the caller's signal is already aborted, before any page is requested;
+ * - `cursor` is not a safe integer `>= -1`;
  * - a later page reports a different `cursor` (the window would drift under concurrent appends);
+ * - an event's `seq` exceeds the page's `cursor`;
  * - the first page's newest `seq` is not the pinned `cursor` (the tail would be missing);
- * - a page is empty while `hasMore` says more remains, or the page does not move before `beforeSeq`;
+ * - a page is empty while `hasMore` says more remains, or an empty page still reports a cursor above `-1`;
  * - a page is not contiguous by `seq` (a `[0, 2]` page loses seq 1), repeats a `seq`, or leaves a gap at the page boundary;
  * - the oldest event read is not seq 0, so the log has no prefix (transcript indexes would shift);
  * - a wire record is malformed.
@@ -52,10 +54,16 @@ export async function sessionHistory(ctx: Context, id: string, signal?: AbortSig
       ...before === undefined ? {} : { beforeSeq: before },
     }, request)
     request.throwIfAborted()
-    if (!Number.isSafeInteger(page.cursor)) throw new HistoryIncomplete(`Session ${id} history returned an invalid cursor: ${String(page.cursor)}`)
+    if (!Number.isSafeInteger(page.cursor) || page.cursor < -1) throw new HistoryIncomplete(`Session ${id} history returned an invalid cursor: ${String(page.cursor)}`)
     const events = page.records.map(record => durable(record.event, id))
+    // A page may never claim events past the cut it reported; the tail check below would otherwise blame the wrong seam.
+    for (const event of events) {
+      if (event.seq > page.cursor) throw new HistoryIncomplete(`Session ${id} history returned seq ${event.seq} past cursor ${page.cursor}`)
+    }
     if (events.length === 0) {
       if (page.hasMore) throw new HistoryIncomplete(`Session ${id} history page was empty while more remained`)
+      // Only a log with no events at all may be empty, and that log's cut is -1.
+      if (page.cursor !== -1) throw new HistoryIncomplete(`Session ${id} history returned an empty page at cursor ${page.cursor}`)
       break
     }
     if (through === undefined) {
@@ -89,6 +97,8 @@ export async function sessionHistory(ctx: Context, id: string, signal?: AbortSig
   }
   const events = pages.reverse().flat()
   // A complete prefix starts at seq 0; anything else means the log lost its head and transcript indexes would shift.
-  if (events.length > 0 && events[0]!.seq !== 0) throw new HistoryIncomplete(`Session ${id} history prefix missing: oldest seq is ${events[0]!.seq}`)
+  if (events.length > 0 && events[0]!.seq !== 0) {
+    throw new HistoryIncomplete(`Session ${id} history prefix missing: session history starts at seq ${events[0]!.seq} (inherited session?)`)
+  }
   return events
 }

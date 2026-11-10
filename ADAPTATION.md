@@ -21,7 +21,7 @@ declarations pinned to the target host.
 | `src/client/deployment.tsx` | Read-only is `status === 'ready' && !writable`; no `mode` field | `ConfigFormSnapshot.mode` was removed in 0.2.2 |
 | `src/deployment.ts` | `stateDir` accepts POSIX `/x`, Windows `C:\x` / `C:/x`, UNC `\\host\share` | The old `/^\//` check made the plugin unactivatable on Windows (a cross-platform defect, not an adaptation loss) |
 
-Six checks are enforced by session-history.ts and covered by tests: a later page must report the pinned cursor; a page must be consecutive by seq (a [0, 2] page loses seq 1); pages must meet at ewest === previousOldest - 1; the opening page must reach the cursor; the oldest event must be seq 0 (no missing prefix); a malformed wire record raises instead of being dropped; and an already-aborted signal is rejected before any page is requested.
+Six checks are enforced by session-history.ts and covered by tests: a later page must report the pinned cursor; a page must be consecutive by seq (a [0, 2] page loses seq 1); pages must meet at ewest === previousOldest - 1; the opening page must reach the cursor; the oldest event must be seq 0 (no missing prefix); a malformed wire record raises instead of being dropped; no event may report a seq past its page cursor, a cursor below -1 is invalid, an empty log is legal only at cursor = -1, and an already-aborted signal is rejected before any page is requested.
 
 ## Test changes (9 added cases)
 
@@ -47,6 +47,8 @@ The 42 baseline failures are environmental on Windows (POSIX `spawn`/`tmux`/`sym
 pre-existing documentation link test). Ceilings of this evidence, stated plainly: the native host cannot even
 start on Windows (the old `stateDir` check rejects `C:/`), so UI and persistence equivalence are **conditional** —
 adapted real machine, native at the test layer only. It is not a two-machine comparison.
+
+- Transcript reading assumes a Session log starts at seq 0. Forked or inherited Sessions, whose log may start later, are not supported: the reader fails loudly with prefix missing: session history starts at seq N (inherited session?) rather than returning shifted indexes.
 
 ## What this adaptation did not do
 
