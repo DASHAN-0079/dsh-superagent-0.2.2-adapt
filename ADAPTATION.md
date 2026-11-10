@@ -21,9 +21,7 @@ declarations pinned to the target host.
 | `src/client/deployment.tsx` | Read-only is `status === 'ready' && !writable`; no `mode` field | `ConfigFormSnapshot.mode` was removed in 0.2.2 |
 | `src/deployment.ts` | `stateDir` accepts POSIX `/x`, Windows `C:\x` / `C:/x`, UNC `\\host\share` | The old `/^\//` check made the plugin unactivatable on Windows (a cross-platform defect, not an adaptation loss) |
 
-Four invariants are enforced by `session-history.ts` and covered by tests: a later page must report the same
-cursor; a page must be strictly ascending by `seq`; pages must meet at `newest === previousOldest - 1`; and a
-malformed wire record raises instead of being dropped.
+Six checks are enforced by session-history.ts and covered by tests: a later page must report the pinned cursor; a page must be consecutive by seq (a [0, 2] page loses seq 1); pages must meet at ewest === previousOldest - 1; the opening page must reach the cursor; the oldest event must be seq 0 (no missing prefix); a malformed wire record raises instead of being dropped; and an already-aborted signal is rejected before any page is requested.
 
 ## Test changes (9 added cases)
 

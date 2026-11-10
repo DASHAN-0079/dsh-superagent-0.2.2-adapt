@@ -4,7 +4,8 @@ import { HistoryIncomplete, sessionHistory } from '../src/app/session-history.ts
 
 /** One durable wire envelope as the controller returns it. */
 const event = (seq: number) => ({ type: 'assistant/message', seq, time: 0, data: { message: { role: 'assistant', content: [] } } })
-const page = (records: unknown[], cursor: number, hasMore = false) => ({ cursor, hasMore, records: records.map(item => ({ type: 'event', event: item })) })
+/** One controller page: the seqs it carries, the cursor it pins, and whether older events remain. */
+const page = (seqs: number[], cursor: number, hasMore = false) => ({ cursor, hasMore, records: seqs.map(seq => ({ type: 'event', event: event(seq) })) })
 
 /** A Context whose controller serves the given pages and records how each call was made. */
 function controller(pages: unknown[]) {
@@ -20,62 +21,86 @@ function controller(pages: unknown[]) {
 
 describe('sessionHistory', () => {
   it('returns a single non-empty page oldest first', async () => {
-    const { ctx } = controller([page([{ ...event(3) }, { ...event(4) }], 4)])
+    const { ctx } = controller([page([0, 1], 1)])
     const events = await sessionHistory(ctx, 'worker')
-    expect(events.map(item => item.seq)).toEqual([3, 4])
+    expect(events.map(item => item.seq)).toEqual([0, 1])
   })
 
   it('pages backwards from a pinned cursor and returns the whole prefix in order', async () => {
     const { ctx, calls } = controller([
-      page([event(10), event(11), event(12)], 12, true),
-      page([event(7), event(8), event(9)], 12, false),
+      page([5, 6], 6, true),
+      page([0, 1, 2, 3, 4], 6, false),
     ])
     const events = await sessionHistory(ctx, 'worker')
-    expect(events.map(item => item.seq)).toEqual([7, 8, 9, 10, 11, 12])
+    expect(events.map(item => item.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])
     // The first page fixes the cut; later pages pin it and step before the oldest event already read, exclusive.
     const address = { kind: 'session', sessionId: 'worker' }
     expect(calls).toEqual([
       { address },
-      { address, throughSeq: 12, beforeSeq: 10 },
+      { address, throughSeq: 6, beforeSeq: 5 },
     ])
   })
 
   it('fails on a gap between pages instead of returning a short log', async () => {
     const { ctx } = controller([
-      page([event(10), event(11)], 11, true),
-      page([event(6), event(7)], 11, false),
+      page([4, 5], 5, true),
+      page([0, 1, 2], 5, false),
     ])
     await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(HistoryIncomplete)
   })
 
   it('fails when a later page reports a different cursor', async () => {
     const { ctx } = controller([
-      page([event(10)], 10, true),
-      page([event(9)], 11, false),
+      page([4, 5], 5, true),
+      page([0, 1, 2, 3], 6, false),
     ])
     await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/cursor moved/)
   })
 
-  it('fails when a page is not strictly ascending', async () => {
-    const { ctx } = controller([page([event(5), event(4)], 5, false)])
-    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/not ascending/)
+  it('fails on a page that skips a seq inside itself', async () => {
+    // `[0, 2]` is ascending but loses seq 1, which would shift every later transcript index.
+    const { ctx } = controller([page([0, 2], 2)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/not contiguous/)
+  })
+
+  it('fails when the log has no prefix, instead of treating a late start as complete', async () => {
+    const { ctx } = controller([page([1, 2], 2)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/prefix missing/)
+  })
+
+  it('fails when the first page does not reach the pinned cursor', async () => {
+    const { ctx } = controller([page([0, 1], 3)])
+    await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/tail missing/)
   })
 
   it('fails on a repeated seq across pages', async () => {
     const { ctx } = controller([
-      page([event(10)], 10, true),
-      page([event(10)], 10, false),
+      page([4], 4, true),
+      page([0, 1, 2, 3, 4], 4, false),
     ])
     await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/twice/)
   })
 
   it('fails on a malformed wire record instead of dropping it', async () => {
-    const { ctx } = controller([page([{ type: 'assistant/message', data: {} }], 1)])
+    const { ctx } = controller([{ cursor: 1, hasMore: false, records: [{ type: 'event', event: { type: 'assistant/message', data: {} } }] }])
     await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/invalid seq/)
   })
 
   it('fails when a page is empty while more remains', async () => {
     const { ctx } = controller([page([], 4, true)])
     await expect(sessionHistory(ctx, 'worker')).rejects.toThrow(/empty while more remained/)
+  })
+
+  it('does not request a page when the caller signal is already aborted', async () => {
+    const { ctx, events } = controller([page([0, 1], 1)])
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(sessionHistory(ctx, 'worker', aborted.signal)).rejects.toThrow(/abort/i)
+    expect(events).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty log for an empty Session', async () => {
+    const { ctx } = controller([page([], 0, false)])
+    expect(await sessionHistory(ctx, 'worker')).toEqual([])
   })
 })
