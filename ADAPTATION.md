@@ -48,7 +48,7 @@ pre-existing documentation link test). Ceilings of this evidence, stated plainly
 start on Windows (the old `stateDir` check rejects `C:/`), so UI and persistence equivalence are **conditional** —
 adapted real machine, native at the test layer only. It is not a two-machine comparison.
 
-- Transcript reading assumes a Session log starts at seq 0. Forked or inherited Sessions, whose log may start later, are not supported: the reader fails loudly with prefix missing: session history starts at seq N (inherited session?) rather than returning shifted indexes.
+- Transcript reading requires a complete log: contiguous from seq 0 to the pinned cursor. An incomplete log is rejected explicitly (prefix missing: session history starts at seq N) instead of returning shifted indexes. Forked and inherited Sessions have not been verified end-to-end in superagent.
 
 ## What this adaptation did not do
 

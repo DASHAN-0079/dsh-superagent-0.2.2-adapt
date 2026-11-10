@@ -98,7 +98,7 @@ export async function sessionHistory(ctx: Context, id: string, signal?: AbortSig
   const events = pages.reverse().flat()
   // A complete prefix starts at seq 0; anything else means the log lost its head and transcript indexes would shift.
   if (events.length > 0 && events[0]!.seq !== 0) {
-    throw new HistoryIncomplete(`Session ${id} history prefix missing: session history starts at seq ${events[0]!.seq} (inherited session?)`)
+    throw new HistoryIncomplete(`Session ${id} history prefix missing: session history starts at seq ${events[0]!.seq}`)
   }
   return events
 }
