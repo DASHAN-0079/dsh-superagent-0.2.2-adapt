@@ -1,7 +1,7 @@
 # Stage 4 安装并跑通（001 主R）
 
 - 日期：2026-11-10
-- 隔离 home：`C:\Users\yoyok\.dsh-eta`（未触碰 `C:\Users\yoyok\.dsh`）
+- 隔离 home：`<isolated-dsh-home>`（未触碰 `<original-dsh-home>`）
 - 目标宿主：eta-dsh @ fcc0ad4（dsh 0.2.2-rc.1，源码模式启动）
 - 结论：**profile 安装成功并启动，面板可访问；运行时错误码为 0**（只有首次部署未配 GitHub 仓库的 `repositoryUnset`，属预期 setup 状态）
 
@@ -9,7 +9,7 @@
 
 0.2.2-rc.1 的 `@deepseek-ai/*` 未发布 npm，profile 的 `pnpm install` 解析不到 peer。按 CTO 给定方案，profile 依赖全部用 `link:` 指向真实目录（realpath 与宿主同一份，满足 G1-10 单实例）：
 
-`C:\Users\yoyok\.dsh-eta\profiles\superagent\package.json`
+`<isolated-dsh-home>\profiles\superagent\package.json`
 
 ```json
 "dependencies": {
@@ -43,7 +43,7 @@ Bundle 构建（compat 树，源码同步自真实仓库后）：`pnpm exec tsdo
 - id: webserver
   config: { host: 127.0.0.1, port: 3082 }
 - id: dsh-superagent
-  config: { stateDir: C:/Users/yoyok/.dsh-eta/state/superagent }
+  config: { stateDir: <isolated-dsh-home>/state/superagent }
 ```
 
 ## 3. 启动结果
@@ -58,7 +58,7 @@ dsh web: http://127.0.0.1:3082/?token=<token>
 - `GET /orchestrator/api/state`（带 `x-orchestrator-request: 1` 与同源 Host/Origin）→ **HTTP 200**：
 
 ```json
-setup: { "machine": { "stateDir": "C:/Users/yoyok/.dsh-eta/state/superagent", … },
+setup: { "machine": { "stateDir": "<isolated-dsh-home>/state/superagent", … },
          "problem": { "place": "github", "code": "repositoryUnset", "detail": "The GitHub Source names no repository." } }
 load:  { "running": 0, "queued": 0, "maxWorkers": 3 }
 paused: false

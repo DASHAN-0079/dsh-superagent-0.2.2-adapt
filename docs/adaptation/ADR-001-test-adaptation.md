@@ -2,7 +2,7 @@
 
 - 状态：提议；明灯提交于2026-11-10；Chief和判官尚未签字。
 - 适配目标：仅 dsh 0.2.2-rc.1 @ fcc0ad4。N组 rc.3仅为对照。
-- 关联：[技术方案卡](<C:/Users/yoyok/.dsh/bot/workspace/研发流程/superagent-0.2.2适配__技术方案卡.md>)、[评测协议](<C:/Users/yoyok/.dsh/bot/workspace/评测/superagent-0.2.2适配__评测协议.md>)。
+- 关联：《技术方案卡》、《评测协议 v1.4》。
 
 ## 背景
 
@@ -12,9 +12,9 @@
 
 仅审查以下A组变化，不修改N组或比较器：
 
-- [模型测试](<C:/Users/yoyok/.vscode/VSCodeProjects/dsh-superagent-prototype/tests/role-models.spec.ts>)：移除 ModelSelectionRef；以真实 SessionProjectionRegistry、modelSelectionProjectionDefinition、AgentModel 和单参 installModelSelection 接线。保留角色默认、手工切换、在途固定、恢复和无效路由的业务断言；记录每个旧测试名到新测试名的一一对应。
-- [面板 fixture](<C:/Users/yoyok/.vscode/VSCodeProjects/dsh-superagent-prototype/tests/fixtures/panel-server.ts>)与[部署测试](<C:/Users/yoyok/.vscode/VSCodeProjects/dsh-superagent-prototype/tests/panel-deployment.spec.tsx>)：删除mode；只读用ready+writable=false，不可用另用unavailable。原文案与禁用断言保留。
-- [运行测试](<C:/Users/yoyok/.vscode/VSCodeProjects/dsh-superagent-prototype/tests/runtime.spec.ts>)：只把指定事件的sessionId构造成品牌ID，不改事件名称、payload值和断言。
+- [模型测试](../../tests/role-models.spec.ts)：移除 ModelSelectionRef；以真实 SessionProjectionRegistry、modelSelectionProjectionDefinition、AgentModel 和单参 installModelSelection 接线。保留角色默认、手工切换、在途固定、恢复和无效路由的业务断言；记录每个旧测试名到新测试名的一一对应。
+- [面板 fixture](../../tests/fixtures/panel-server.ts)与[部署测试](../../tests/panel-deployment.spec.tsx)：删除mode；只读用ready+writable=false，不可用另用unavailable。原文案与禁用断言保留。
+- [运行测试](../../tests/runtime.spec.ts)：只把指定事件的sessionId构造成品牌ID，不改事件名称、payload值和断言。
 - 新增history/HTTP增量用例放入单独文件；若既有mock曾直接提供inspect，只将其接线成真实events页结构，必须另报精确diff给判官，不在本ADR中给任意测试修改授权。
 
 判官审核每项diff与业务断言映射，按协议决定原始冻结集分母如何记账，并把排除项与替代用例全部列出。变更测试不能直接算作“原809项未经改变全过”；不得改compare脚本、全局skip或降低阈值来获得通过。

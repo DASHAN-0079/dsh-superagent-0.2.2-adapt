@@ -69,7 +69,7 @@
 
 ```powershell
 $env:NODE_OPTIONS="--max-old-space-size=7168"
-pnpm exec vitest run --reporter=json --outputFile="C:\Users\yoyok\.dsh\bot\workspace\g0\adapted-final.json" --pool=forks --maxWorkers=2
+pnpm exec vitest run --reporter=json --outputFile="<team-workspace>\g0\adapted-final.json" --pool=forks --maxWorkers=2
 ```
 
 判官收到后执行：

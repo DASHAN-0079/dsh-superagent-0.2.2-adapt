@@ -80,7 +80,7 @@
 沙箱对本机两个目录只读（superagent 仓库、eta-dsh `superagent-compat`），`tsdown` 要写 `lib/`，因此我无法在本机跑。命令（在 compat 树内执行，写的是副本）：
 
 ```powershell
-cd C:\Users\yoyok\.vscode\VSCodeProjects\eta-dsh\superagent-compat
+cd <dsh-workspace>/eta-dsh\superagent-compat
 pnpm exec tsdown
 ```
 
@@ -88,6 +88,6 @@ pnpm exec tsdown
 
 ## 7. N rig（G0）布局事实
 
-- `C:\Users\yoyok\.dsh\bot\workspace\g0\host-0.2.1`：eta-dsh @ `dsh-v0.2.1-rc.3`（1f81c047fc）tar 展开，16333 文件，14 个 symlink 条目未展开（全在 docs/snapshots，无源码）。
+- `<team-workspace>\g0\host-0.2.1`：eta-dsh @ `dsh-v0.2.1-rc.3`（1f81c047fc）tar 展开，16333 文件，14 个 symlink 条目未展开（全在 docs/snapshots，无源码）。
 - `...\superagent-native`：8c32a9d 源码零改动副本，`link-host.mjs` 接线 25 个依赖全命中（`missingInEtaDsh: []`）。
 - 安装状态：full install 撞 sheetjs CDN（已摘 `ui-sidebar-documentpreview` 的 `xlsx` devDep，与该包无关）+ pnpm `symlinkAllModules` 栈溢出；hoisted 重试仍在跑，未完成。**G0 未达成**，等安装与 `pnpm run build` 完成。

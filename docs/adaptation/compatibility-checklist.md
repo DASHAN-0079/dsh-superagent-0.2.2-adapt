@@ -22,7 +22,7 @@
 把源码只读复制到可写区，用 tsconfig `paths` 把 25 个 `@deepseek-ai/*` 依赖直接映射到 eta-dsh 已构建的 `lib/types/*.d.ts`，第三方类型取 eta-dsh 已安装版本。不装依赖、不改代码。
 
 ```powershell
-pwsh -NoProfile -File C:\Users\yoyok\.dsh\bot\workspace\compat-sa\run-compat-typecheck.ps1
+pwsh -NoProfile -File <team-workspace>\compat-sa\run-compat-typecheck.ps1
 ```
 
 输出（2026-11-10 22:5x 实跑）：
@@ -37,7 +37,7 @@ pwsh -NoProfile -File C:\Users\yoyok\.dsh\bot\workspace\compat-sa\run-compat-typ
 ### 2.2 对照 rig（CTO 的 `eta-dsh/superagent-compat`，`workspace:*` 真装）
 
 ```powershell
-cd C:\Users\yoyok\.vscode\VSCodeProjects\eta-dsh
+cd <dsh-workspace>/eta-dsh
 pnpm exec tsc -p superagent-compat/tsconfig.json --noEmit --pretty false
 ```
 
@@ -155,9 +155,9 @@ EXIT=2  ERRORS=11  src=6  tests=5   (compat-sa\typecheck-chief-compat-rerun.log)
 
 ```powershell
 # 权威清单（单副本 cordis）
-pwsh -NoProfile -File C:\Users\yoyok\.dsh\bot\workspace\compat-sa\run-compat-typecheck.ps1
+pwsh -NoProfile -File <team-workspace>\compat-sa\run-compat-typecheck.ps1
 # 单测（需先装依赖，当前受沙箱限制不可写 superagent 仓库）
-# pnpm -C C:\Users\yoyok\.vscode\VSCodeProjects\dsh-superagent-prototype test
+# pnpm -C <superagent-checkout> test
 ```
 
 建议判官门禁先用 `src` 程序作为「编译等价」基线：改造后 src 必须 0 错误；tests 允许并行修，但不作为门禁前置条件。
