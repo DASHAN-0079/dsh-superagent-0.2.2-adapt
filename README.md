@@ -8,7 +8,12 @@ dsh-superagent is a proactive coding agent for one GitHub repository, packaged a
 
 It is also a way of working with an agent: **take as little human attention as possible, and give as much value as possible.** An agent that can act for a whole team can also waste a whole team's attention, so it acts only when asked or when a rule the team wrote allows it, and speaks only when someone must act or can use a result. [docs/000-philosophy.md](docs/000-philosophy.md) explains the principle and what it asks of the operator.
 
-> **Build requirement for this adaptation.** This checkout targets DeepSeek Harness `0.2.2-rc.1`, whose `@deepseek-ai/*` packages are **not published to npm**. A standalone `pnpm install` cannot resolve the peers: add this checkout to a dsh workspace (`pnpm-workspace.yaml`) and build it there, so `@deepseek-ai/*` resolves to the workspace packages. `engines.dsh`, the DSH peers, `cordis@4.1.0` and `schemastery@3.19.0` are pinned to that host.
+> **Build requirement for this adaptation.** This checkout targets DeepSeek Harness `0.2.2-rc.3`. The
+> `@deepseek-ai/*@0.2.2-rc.3` tarballs are on npm but lag the tagged host (the webserver types there lack the
+> `auth` route field), so a plain `pnpm install` against npm is not enough: add this checkout to a dsh workspace
+> (`pnpm-workspace.yaml`) with top-level `linkWorkspacePackages: true`, run `pnpm update --filter dsh-superagent`,
+> and build there, so `@deepseek-ai/*` resolves to the workspace **source**. `engines.dsh`, the DSH peers
+> (including the new `@deepseek-ai/dsh-error`), `cordis@4.1.0` and `schemastery@3.19.0` are pinned to that host.
 
 ## Setup
 
@@ -18,10 +23,10 @@ Setup has many steps, so an agent does it with you. Ask your coding agent:
 
 It asks one short question at a time, shows the full plan once, and then installs and configures everything. [SETUP.md](SETUP.md) is what it follows.
 
-## Adaptation to DeepSeek Harness 0.2.2-rc.1
+## Adaptation to DeepSeek Harness 0.2.2-rc.3
 
-This checkout is adapted to `0.2.2-rc.1`: read [ADAPTATION.md](ADAPTATION.md) for the four source changes, the
-nine added tests, and the equivalence evidence with its stated ceilings. Signed review artifacts are in
+This checkout is adapted to `0.2.2-rc.3`: read [ADAPTATION.md](ADAPTATION.md) for the five source changes, the
+added tests, and the equivalence evidence with its stated ceilings. Signed review artifacts are in
 [docs/adaptation](docs/adaptation).
 ## Documentation
 

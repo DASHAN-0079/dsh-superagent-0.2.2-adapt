@@ -10,10 +10,9 @@ interface Row { id?: string; name: string; disabled?: unknown; config?: Record<s
 async function patched(): Promise<Row[]> {
   const cordis = createRequire(createRequire(import.meta.url).resolve('@deepseek-ai/cordis/package.json'))
   const include = cordis.resolve('@deepseek-ai/cordis-plugin-include')
-  const { entryListSchema, applyEntryPatches } = await import(include) as {
-    entryListSchema: unknown; applyEntryPatches(data: Row[], patches: unknown[], warn: (message: string) => void): Row[] }
-  const yaml = await import(createRequire(include).resolve('js-yaml')) as { load(text: string, options: { schema: unknown }): unknown }
-  const patches = yaml.load(readFileSync(join(import.meta.dirname, '..', 'cordis.patch.yml'), 'utf8'), { schema: entryListSchema }) as unknown[]
+  const { parseEntryYaml, applyEntryPatches } = await import(include) as {
+    parseEntryYaml(content: string): unknown; applyEntryPatches(data: Row[], patches: unknown[], warn: (message: string) => void): Row[] }
+  const patches = parseEntryYaml(readFileSync(join(import.meta.dirname, '..', 'cordis.patch.yml'), 'utf8')) as unknown[]
   const warnings: string[] = []
   const rows = applyEntryPatches([], patches, message => { warnings.push(message) })
   expect(warnings).toEqual([])
