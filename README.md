@@ -31,7 +31,7 @@ This bundle is listed in a community plugin index:
 https://raw.githubusercontent.com/DASHAN-0079/dsh-plugin-market/main/index.json
 ```
 
-Open **Plugins**, select the **Discover** tab, then **Manage index sourcesâ€?* (or **Add index source** on the
+Open **Plugins**, select the **Discover** tab, then **Manage index sourcesâ€¦** (or **Add index source** on the
 empty state), paste that URL, and **Add**. **Superagent** then appears in Discover; **Install** adds it to the
 profile at the commit the index pins. The same install by hand is
 
@@ -42,7 +42,7 @@ dsh plugin add "git+https://github.com/DASHAN-0079/dsh-superagent-adapt.git#v0.1
 DeepSeek Harness has no self-service official marketplace: its built-in catalog only lists the
 `@deepseek-ai/dsh-*` packages that ship in the DSH repository, so a community index is the supported way to
 publish outside that set. Discover belongs to the experimental plugin-manager bundle; enable it under
-**Settings â†?Plugins** if the tab is missing.
+**Settings â†’ Plugins** if the tab is missing.
 
 ### By hand
 
