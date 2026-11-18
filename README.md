@@ -44,6 +44,15 @@ DeepSeek Harness has no self-service official marketplace: its built-in catalog 
 publish outside that set. Discover belongs to the experimental plugin-manager bundle; enable it under
 **Settings → Plugins** if the tab is missing.
 
+### Prebuilt tarball
+
+Every release also carries the built bundle as a release asset, so this install needs neither a build step
+nor an `allowBuilds` approval:
+
+```sh
+dsh plugin add https://github.com/DASHAN-0079/dsh-superagent-adapt/releases/latest/download/dsh-superagent.tgz
+```
+
 ### By hand
 
 `dsh plugin add "git+https://github.com/DASHAN-0079/dsh-superagent-adapt.git#v0.1.1"` installs the bundle from
