@@ -10,12 +10,45 @@ dsh-superagent is a proactive coding agent for one GitHub repository, packaged a
 
 It is also a way of working with an agent: **take as little human attention as possible, and give as much value as possible.** An agent that can act for a whole team can also waste a whole team's attention, so it acts only when asked or when a rule the team wrote allows it, and speaks only when someone must act or can use a result. [docs/000-philosophy.md](docs/000-philosophy.md) explains the principle and what it asks of the operator.
 
-> **Build requirement for this adaptation.** This checkout targets DeepSeek Harness `0.2.2-rc.3`. The
+> **Installing from Git or the plugin index.** From `0.1.1` this checkout commits its built `lib/` output, so a Git
+> install loads the shipped bundle: no build step and no pnpm build approval is involved. Rebuild only when you
+> change the sources.
+>
+> **Building from source.** This checkout targets DeepSeek Harness `0.2.2-rc.3`. The
 > `@deepseek-ai/*@0.2.2-rc.3` tarballs are on npm but lag the tagged host (the webserver types there lack the
 > `auth` route field), so a plain `pnpm install` against npm is not enough: add this checkout to a dsh workspace
 > (`pnpm-workspace.yaml`) with top-level `linkWorkspacePackages: true`, run `pnpm update --filter dsh-superagent`,
 > and build there, so `@deepseek-ai/*` resolves to the workspace **source**. `engines.dsh`, the DSH peers
 > (including the new `@deepseek-ai/dsh-error`), `cordis@4.1.0` and `schemastery@3.19.0` are pinned to that host.
+
+## Install
+
+### From a plugin index
+
+This bundle is listed in a community plugin index:
+
+```
+https://raw.githubusercontent.com/DASHAN-0079/dsh-plugin-market/main/index.json
+```
+
+Open **Plugins**, select the **Discover** tab, then **Manage index sourcesâ€?* (or **Add index source** on the
+empty state), paste that URL, and **Add**. **Superagent** then appears in Discover; **Install** adds it to the
+profile at the commit the index pins. The same install by hand is
+
+```sh
+dsh plugin add "git+https://github.com/DASHAN-0079/dsh-superagent-adapt.git#v0.1.1"
+```
+
+DeepSeek Harness has no self-service official marketplace: its built-in catalog only lists the
+`@deepseek-ai/dsh-*` packages that ship in the DSH repository, so a community index is the supported way to
+publish outside that set. Discover belongs to the experimental plugin-manager bundle; enable it under
+**Settings â†?Plugins** if the tab is missing.
+
+### By hand
+
+`dsh plugin add "git+https://github.com/DASHAN-0079/dsh-superagent-adapt.git#v0.1.1"` installs the bundle from
+the pinned commit. Afterwards restart the host and configure the deployment: the bundle needs a GitHub token,
+model roles and permissions before it runs, which [Setup](#setup) walks through.
 
 ## Setup
 
@@ -30,6 +63,7 @@ It asks one short question at a time, shows the full plan once, and then install
 This checkout is adapted to `0.2.2-rc.3`: read [ADAPTATION.md](ADAPTATION.md) for the five source changes, the
 added tests, and the equivalence evidence with its stated ceilings. Signed review artifacts are in
 [docs/adaptation](docs/adaptation).
+
 ## Documentation
 
 Read the numbered documents in order; each builds only on the ones before it.

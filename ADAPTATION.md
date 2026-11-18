@@ -59,6 +59,21 @@ adapted real machine, native at the test layer only. It is not a two-machine com
 
 - Transcript reading requires a complete log: contiguous from seq 0 to the pinned cursor. An incomplete log is rejected explicitly (prefix missing: session history starts at seq N) instead of returning shifted indexes. Forked and inherited Sessions have not been verified end-to-end in superagent.
 
+## Distribution shape
+
+`0.1.1` adds what a Git or plugin-index install needs, without changing behavior:
+
+- The built `lib/` output is committed (12 files, about 1.06 MB), so a Git install loads the emitted bundle. A Git
+  install fetches sources, never build artifacts, and running the package's build scripts at install time needs an
+  `allowBuilds` grant from the user; shipping the output avoids both. `lib/` stays in `.gitignore` for local
+  builds and is force-added, so `pnpm build` output and the tracked copy do not diverge silently.
+- No `prepare` script: this package's `devDependencies` are `workspace:*` entries that only resolve inside a DSH
+  workspace, so an install-time build could not succeed outside one anyway.
+- `icon.svg` plus `"icon"`, `"./icon"` in `exports`, and `icon.svg` in `files` give installed copies a display icon;
+  `locale/en.json` and `locale/zh.json` already supply `meta.title`/`meta.description`.
+- The community plugin index lives in `DASHAN-0079/dsh-plugin-market` and pins an exact commit, so an install from
+  Discover is reproducible; see the README install section.
+
 ## What this adaptation did not do
 
 - `history_read` (recovering text hidden by the compaction tool-result pruner) does not exist in either host
