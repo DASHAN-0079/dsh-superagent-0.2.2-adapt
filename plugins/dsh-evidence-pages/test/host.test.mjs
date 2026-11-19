@@ -23,6 +23,32 @@ function append(session,turn) {
   session.append('turn/end',{turn,reason:{kind:'completed'}})
   return seq
 }
+test('compress a historical region using the visible later clarification and the observed tool call',async t=>{
+  const old=process.env.DSH_EVIDENCE_POLICY
+  process.env.DSH_EVIDENCE_POLICY='jevos'
+  t.after(()=>{if(old===undefined)delete process.env.DSH_EVIDENCE_POLICY;else process.env.DSH_EVIDENCE_POLICY=old})
+  const ctx=new Context();new Registry(ctx);new Meter(ctx)
+  const session=Session.create('clarified-fixture')
+  append(session,1)
+  new Pruner(ctx).pruneSession(session)
+  const nodes=[...session.surface.nodes]
+  session.append('turn/start',{turn:2})
+  session.append('user/message',createUserMessage({source:{kind:'user'},content:[{type:'text',text:'Use the failed rerun.'}]}),{surfaceOp:'append'})
+  let request
+  t.mock.method(globalThis,'fetch',async(_url,options)=>{
+    request=JSON.parse(options.body)
+    const q=request.questions.page0
+    const target=Object.entries(q.criteria).find(([,body])=>body.includes('CASE_8317'))
+    assert.ok(target)
+    return Response.json({answers:{page0:{choice:target[0]}}})
+  })
+  await new Engine(ctx,{auto:false}).compactRegion(nodes[0],nodes.at(-1),{session,options:{}},new AbortController().signal)
+  assert.equal(request.state.checkpointTask,'Use the failed rerun.')
+  assert.ok(request.questions.page0.instructions.includes('"name":"tests"'))
+  assert.ok(request.questions.page0.instructions.includes('Please retain the exact failure.'))
+  const checkpoint=session.snapshotEvents().findLast(e=>e.type==='compaction/summary')
+  assert.ok(JSON.stringify(checkpoint.data.summary).includes('CASE_8317'))
+})
 test('actual rc.5 surface, two checkpoints, durable replay and caller-bound paging',async()=>{
   const old=process.env.DSH_EVIDENCE_POLICY
   process.env.DSH_EVIDENCE_POLICY='rule'

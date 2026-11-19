@@ -1,6 +1,6 @@
 {
   "name": "dsh-evidence-pages",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Source-addressed tool results and selective verbatim checkpoints for DSH rc.5",
   "type": "module",
   "license": "MIT",

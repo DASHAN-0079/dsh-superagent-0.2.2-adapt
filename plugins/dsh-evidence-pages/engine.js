@@ -2,9 +2,9 @@ import { isDeepStrictEqual } from 'node:util'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import { BlockAssembler, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { originalResult, textOf } from './source.js'
-import { candidates, instruction, jevosPick, payload, rulePick, validatePick } from './policy.js'
+import { candidates, instruction, selectJevosPages, payload, rulePick, validatePick } from './policy.js'
+import { decisionContext, recentText } from './context.js'
 
-const asText = message => message.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')
 function seqIndex(session) {
   const byCall=new Map(), byCheckpoint=new Map()
   for (const seq of session.surface.nodes) {
@@ -60,6 +60,8 @@ export default class EvidenceCompaction extends BasicCompactionEngine {
       const before=region.reduce((n,m)=>n+this.ctx.tokenMeter.estimateMessage(m),0)
       return refs.size && priced+128<before ? {...result,summary:output} : result
     }
+    const context = decisionContext(agent.session)
+    const pending = []
     let task='', excerpts=0
     const width=256
     try {
@@ -74,12 +76,9 @@ export default class EvidenceCompaction extends BasicCompactionEngine {
           const text=textOf(original)
           if (Array.from(text).length<=width) {lines.push('tool '+message.source.callId+' '+text);continue}
           const menu=candidates(text,task,width)
-          const state=payload(task,menu)
-          const pick=policy==='pointer'?undefined:policy==='rule'?rulePick(menu):policy==='jevos'?await jevosPick(state,signal):await glmPick(this.ctx,agent,state,signal)
-          const page=pick===undefined?undefined:menu[pick]
-          const ref='[evidence_page seq='+original.seq+' charOffset='+(page?.offset ?? 0)+']'
-          anchors.push(ref)
-          lines.push('tool '+message.source.callId+' '+ref+(page?' '+page.body:''))
+          const state=payload(task,menu,{checkpointTask:context.checkpointTask,tool:context.toolFor(message.source.callId,original.seq)})
+          pending.push({state,menu,seq:original.seq,callId:message.source.callId,line:lines.length})
+          lines.push('')
           excerpts++
         } else {
           const checkpoint=byCheckpoint.get(JSON.stringify(message.source))
@@ -89,9 +88,20 @@ export default class EvidenceCompaction extends BasicCompactionEngine {
             continue
           }
           const text=message.content.map(b=>b.type==='text'?b.text:b.type==='tool-call'?JSON.stringify([b.name,b.arguments]):'').join('\n')
-          if (message.role==='user') task=Array.from(asText(message)).slice(-800).join('')
+          if (message.role==='user' && message.source.kind==='user') task=recentText(message)
           lines.push(message.role+' '+text)
         }
+      }
+      const batch = Number(process.env.DSH_EVIDENCE_BATCH_SIZE ?? 1)
+      const choices = policy==='jevos' ? await selectJevosPages(pending.map(p=>p.state),signal,batch) : []
+      for (const [index,item] of pending.entries()) {
+        let pick
+        if (policy==='jevos') pick=choices[index]
+        if (policy==='glm') pick=await glmPick(this.ctx,agent,item.state,signal)
+        if (policy==='rule') pick=rulePick(item.menu,item.state)
+        const page=item.menu[pick]
+        const ref='[evidence_page seq='+item.seq+' charOffset='+(page?.offset ?? 0)+']'
+        lines[item.line]='tool '+item.callId+' '+ref+(page?' '+page.body:'')
       }
     } catch (error) {
       signal?.throwIfAborted()
