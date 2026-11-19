@@ -1,6 +1,20 @@
-# Adaptation notes: dsh-superagent on DeepSeek Harness 0.2.2-rc.3
+# SuperAgent compatibility with DeepSeek Harness
 
-This checkout is the upstream `dsh-superagent` source adapted to run on DeepSeek Harness `0.2.2-rc.3`.
+## Public DSH 0.2.2-rc.5
+
+Plugin version 0.1.2 is based on DASHAN-0079/dsh-superagent-adapt at `34c21ffd6b78c126ef32c81ba2473eefa1cb56c0`.
+The host for these checks was the public tag [dsh-v0.2.2-rc.5](https://github.com/deepseek-ai/deepseek-harness/tree/9c2670d3bce5275e0d1610272958121af87787bb).
+
+- The host engine and DSH peer dependency ranges now start at rc.5. All DSH library imports used for validation resolved to the tagged workspace.
+- The public host's WebRoute accepts a kind, path and handler. The management route uses that signature. It still requires a loopback bind, a bound port and a valid same-origin request.
+- The preset tests now read the bundle with the same `js-yaml` library instance and `entryListSchema` as the public host, including its `!!js` tag. Both the rc.3 and rc.5 public tags export this schema. The historical rc.3 validation below used a different host checkout.
+- TypeScript checking and the plugin build passed on Windows with Node 24.22.3. The entry point and the GitHub/Feishu source modules import from the resulting distribution.
+- The complete plugin suite ran against the same rc.5 host before and after these changes. The base revision passed 1168 of 1213 tests. The updated plugin passed 1170. Both preset cases now pass. All 43 remaining failure names also fail at the base revision. They include shell commands, service scripts, filesystem permissions, documentation path checks and source process fixtures on Windows. The targeted HTTP, session history, tool, preset, panel deployment and role-model suites passed 59 of 59.
+- Installing the local tarball into an isolated DSH profile with the rc.5 CLI succeeded. The composed configuration contained the bundle entry and both presets. The checks did not run an external GitHub or Feishu ticket.
+
+## Historical rc.3 adaptation
+
+The earlier checkout was the upstream `dsh-superagent` source adapted to run on DeepSeek Harness `0.2.2-rc.3`.
 It is not a new product: it is the same bundle with five source changes, ten added tests, and the delivery
 declarations pinned to the target host.
 

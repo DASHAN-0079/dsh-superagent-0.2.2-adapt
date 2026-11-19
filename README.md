@@ -4,7 +4,7 @@
 >
 > We have adapted it for publication, so it is not identical to our internal version or the implementation described in *Exploring Super-agent Design: Towards a More Autonomous Agent System*. Some designs discussed in the article are directions for future development and are not implemented in this prototype.
 >
-> **About this checkout:** this is a community adaptation of the official [prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) to DeepSeek Harness `0.2.2-rc.3`. The upstream repository has issues and pull requests disabled, so it cannot take this adaptation directly; this fork-like checkout carries it instead. See [ADAPTATION.md](ADAPTATION.md) for the change list and the equivalence evidence.
+> **About this checkout:** this is a community adaptation of the official [prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) to DeepSeek Harness `0.2.2-rc.5`. The upstream repository has issues and pull requests disabled, so it cannot take this adaptation directly; this fork-like checkout carries it instead. See [ADAPTATION.md](ADAPTATION.md) for the change list and the equivalence evidence.
 
 dsh-superagent is a proactive coding agent for one GitHub repository, packaged as a bundle for [DeepSeek Harness](https://www.deepseek.com/en/harness/). It listens to GitHub and, optionally, Feishu. When someone allowed asks the agent for work, it opens a work item, works on it in its own agent session and directory, and answers in the original conversation, for example with a pull request. A web panel shows what needs a person.
 
@@ -14,14 +14,15 @@ It is also a way of working with an agent: **take as little human attention as p
 > install loads the shipped bundle: no build step and no pnpm build approval is involved. Rebuild only when you
 > change the sources.
 >
-> **Building from source.** This checkout targets DeepSeek Harness `0.2.2-rc.3`. The
-> `@deepseek-ai/*@0.2.2-rc.3` tarballs are on npm but lag the tagged host (the webserver types there lack the
-> `auth` route field), so a plain `pnpm install` against npm is not enough: add this checkout to a dsh workspace
-> (`pnpm-workspace.yaml`) with top-level `linkWorkspacePackages: true`, run `pnpm update --filter dsh-superagent`,
-> and build there, so `@deepseek-ai/*` resolves to the workspace **source**. `engines.dsh`, the DSH peers
-> (including the new `@deepseek-ai/dsh-error`), `cordis@4.1.0` and `schemastery@3.19.0` are pinned to that host.
+> **Building from source.** Build against the DSH workspace at tag `dsh-v0.2.2-rc.5`.
+> Add this checkout to its `pnpm-workspace.yaml` with `linkWorkspacePackages: true`, install the workspace dependencies,
+> build the host and client libraries, then run the plugin typecheck, tests and build.
+> The host workspace resolves this package's `workspace:*` development dependencies.
 
 ## Install
+
+For the local rc.5 build, select your target profile and pass the absolute path to the archive, for example
+`dsh plugin --profile web add "C:/Downloads/dsh-superagent-0.1.2.tgz"`. The Git and index examples below refer to the earlier published release.
 
 ### From a plugin index
 
@@ -67,11 +68,10 @@ Setup has many steps, so an agent does it with you. Ask your coding agent:
 
 It asks one short question at a time, shows the full plan once, and then installs and configures everything. [SETUP.md](SETUP.md) is what it follows.
 
-## Adaptation to DeepSeek Harness 0.2.2-rc.3
+## Adaptation to DeepSeek Harness 0.2.2-rc.5
 
-This checkout is adapted to `0.2.2-rc.3`: read [ADAPTATION.md](ADAPTATION.md) for the five source changes, the
-added tests, and the equivalence evidence with its stated ceilings. Signed review artifacts are in
-[docs/adaptation](docs/adaptation).
+[ADAPTATION.md](ADAPTATION.md) records the rc.5 compatibility checks and the earlier rc.3 source changes.
+The historical review artifacts are in [docs/adaptation](docs/adaptation).
 
 ## Documentation
 
