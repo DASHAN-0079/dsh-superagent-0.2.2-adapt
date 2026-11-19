@@ -231,11 +231,7 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
   if (ctx.webServer.host !== '127.0.0.1') throw new Error('Orchestrator management requires a loopback Web server')
   const table = routes(runtime)
   const disposers = [
-    // 0.2.2-rc.3 makes route authentication default to 'required' (a 503 without an
-    // authorize responder). The orchestrator is its own gatekeeper: loopback-only bind,
-    // same-origin + x-orchestrator-request checked in the handler, so it is declared
-    // anonymous to keep the rc.1 dispatch behavior.
-    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', auth: 'anonymous', handler: async (req, res) => {
+    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
       // The port is undefined until the Web server binds; without it same-origin cannot be checked, so the request is
