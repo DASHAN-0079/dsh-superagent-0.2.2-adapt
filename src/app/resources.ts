@@ -37,6 +37,7 @@ export const RESOURCES: readonly { name: string; holds: string; executor?: true 
   { name: 'ticket/<id>/report/<id>', holds: 'the report of one of its assignments', executor: true },
   { name: 'ticket/<id>/transcript', holds: 'its Executor Session\'s messages, newest first', executor: true },
   { name: 'ticket/<id>/message/<n>', holds: 'one message of that transcript', executor: true },
+  { name: 'ticket/<id>/evidence/<seq>', holds: 'original Worker tool output or checkpoint text at the reported Unicode character offset', executor: true },
   { name: 'ticket/<id>/input/<id>', holds: 'one input it was delivered', executor: true },
   { name: 'trigger/<id>', holds: 'a trigger\'s text, where it went, the message it replies to and the messages around it on its thread',
     executor: true },
@@ -268,6 +269,22 @@ const ROUTES: readonly Route[] = [
       const message = input && inputMessage(input, card)
       if (message === undefined) throw new Error('Unknown ticket input')
       body = message
+    } else if (section === 'evidence' && part && /^\d+$/.test(part)) {
+      const seq = Number(part)
+      const event = (await transcript(host, id, read.signal))[seq]
+      if (!event || event.seq !== seq) throw new Error('Unknown Worker evidence')
+      let raw: string
+      if (event.type === 'tool/result' && event.surfaceOp === 'append')
+        raw = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      else if (String(event.type) === 'compaction/summary' && 'summary' in event.data && Array.isArray(event.data.summary))
+        raw = event.data.summary.flatMap((block: unknown) => typeof block === 'object' && block !== null &&
+          'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string' ? [block.text] : []).join('\n')
+      else throw new Error('Expected an original tool result or checkpoint')
+      const points = Array.from(raw)
+      if (read.offset > points.length) throw new Error('Offset exceeds Worker evidence')
+      const end = Math.min(points.length, read.offset + (read.limit ?? 1200))
+      return { resource, offset: read.offset, total_chars: points.length, text: points.slice(read.offset, end).join(''),
+        next_offset: end < points.length ? end : null }
     } else if (section === 'message' && part && /^\d+$/.test(part)) {
       const event = (await transcript(host, id, read.signal))[Number(part)]
       const entry = event && transcriptEntry(event)

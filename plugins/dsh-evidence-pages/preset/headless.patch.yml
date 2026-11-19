@@ -1,0 +1,12 @@
+# The name of an existing row is an identity check in rc.5.
+- id: compaction-basic
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- insert:
+    - id: evidence-page-compaction
+      name: dsh-evidence-pages/engine
+    - id: evidence-page-pruner
+      name: dsh-evidence-pages/pruner
+    - id: evidence-page-reader
+      name: dsh-evidence-pages

@@ -351,6 +351,17 @@ it('reads a ticket with the ids it is tied to, its reports by assignment, and it
   const transcript = JSON.parse((await read(`ticket/${ticket.id}/transcript`) as { text: string }).text) as { preview: string; read: string }
   expect(transcript).toMatchObject({ preview: expect.stringMatching(/^I fixed the margin\./), read: `ticket/${ticket.id}/message/0` })
   expect(transcript.preview.length).toBeLessThanOrEqual(80)
+  const prefix = '🧪"\n'.repeat(300)
+  const target = 'CASE_8317'
+  const raw = prefix + target + ' end'
+  const offset = Array.from(prefix).length
+  const records = [{ type: 'event', event: { type: 'tool/result', seq: 0, time: 0, surfaceOp: 'append',
+    data: { message: { role: 'tool', content: [{ type: 'text', text: raw }] } } } }]
+  vi.mocked(h.controller.events).mockResolvedValue({ cursor: 0, hasMore: false, records } as never)
+  const window = { offset, limit: target.length }
+  expect((await read(`ticket/${ticket.id}/message/0`, window) as { text: string }).text).not.toBe(target)
+  expect(await read(`ticket/${ticket.id}/evidence/0`, window)).toMatchObject({ text: target, next_offset: offset + target.length })
+  expect(await read(`ticket/${ticket.id}/evidence/0`, { offset: offset + target.length })).toMatchObject({ text: ' end', next_offset: null })
 })
 
 it('reads a trigger once with the message it replies to and the messages around it on its thread, without the CI runs', async () => {
