@@ -1,3 +1,0 @@
-# Activation is explicit because Web presets and headless profiles own
-# different service scopes. See preset/headless.patch.yml.
-[]
